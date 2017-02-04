@@ -86,21 +86,35 @@ use self::field_names_decoder::FieldNamesDecoder;
 ///
 /// [csv]: https://github.com/BurntSushi/rust-csv
 /// [Decodable]: https://doc.rust-lang.org/rustc-serialize/rustc_serialize/trait.Decodable.html
-pub struct Reader<R: Read>(csv::Reader<R>);
+pub struct Reader<R: Read> {
+    csv: csv::Reader<R>,
+    reorder: bool,
+}
 
 impl<R: Read> Reader<R> {
+    /// Creates a new typed CSV reader from a normal CSV reader.
+    ///
+    /// *Do not make this public!* If it was public, a CSV reader with
+    /// `flexible = true` or `has_headers = false` could be passed in.
+    fn from_csv_reader(csv: csv::Reader<R>) -> Reader<R> {
+        Reader {
+            csv: csv,
+            reorder: false,
+        }
+    }
+
     /// Creates a new CSV reader from an arbitrary `io::Read`.
     ///
     /// The reader is buffered for you automatically.
     pub fn from_reader(r: R) -> Reader<R> {
-        Reader(csv::Reader::from_reader(r))
+        Reader::from_csv_reader(csv::Reader::from_reader(r))
     }
 }
 
 impl Reader<File> {
     /// Creates a new CSV reader for the data at the file path given.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Reader<File>> {
-        Ok(Reader(csv::Reader::from_file(path)?))
+        Ok(Reader::from_csv_reader(csv::Reader::from_file(path)?))
     }
 }
 
@@ -109,14 +123,14 @@ impl Reader<Cursor<Vec<u8>>> {
     pub fn from_string<'a, S>(s: S) -> Reader<Cursor<Vec<u8>>>
         where S: Into<String>
     {
-        Reader(csv::Reader::from_string(s))
+        Reader::from_csv_reader(csv::Reader::from_string(s))
     }
 
     /// Creates a CSV reader for an in memory buffer of bytes.
     pub fn from_bytes<'a, V>(bytes: V) -> Reader<Cursor<Vec<u8>>>
         where V: Into<Vec<u8>>
     {
-        Reader(csv::Reader::from_bytes(bytes))
+        Reader::from_csv_reader(csv::Reader::from_bytes(bytes))
     }
 }
 
@@ -256,6 +270,19 @@ impl<R: Read> Reader<R> {
 }
 
 impl<R: Read> Reader<R> {
+    /// Allow the reader to reorder columns to match headers to field names.
+    ///
+    /// By default, the headers must match the field names of the decodable
+    /// type exactly, including the order. However, the ordering of field names
+    /// may not be relevant to your data type, so this option is available.
+    ///
+    /// In the case of duplicate field names, the ordering of columns
+    /// corresponding to those fields will be preserved.
+    pub fn reorder(mut self, reorder: bool) -> Reader<R> {
+        self.reorder = reorder;
+        self
+    }
+
     /// The delimiter to use when reading CSV data.
     ///
     /// Since the CSV reader is meant to be mostly encoding agnostic, you must
@@ -263,8 +290,9 @@ impl<R: Read> Reader<R> {
     /// tab-delimited data, you would use `b'\t'`.
     ///
     /// The default value is `b','`.
-    pub fn delimiter(self, delimiter: u8) -> Reader<R> {
-        Reader(self.0.delimiter(delimiter))
+    pub fn delimiter(mut self, delimiter: u8) -> Reader<R> {
+        self.csv = self.csv.delimiter(delimiter);
+        self
     }
 
     /// Set the record terminator to use when reading CSV data.
@@ -278,8 +306,9 @@ impl<R: Read> Reader<R> {
     /// character to use as the record terminator. For example, you could
     /// use `RecordTerminator::Any(b'\n')` to only accept line feeds as
     /// record terminators, or `b'\x1e'` for the ASCII record separator.
-    pub fn record_terminator(self, term: RecordTerminator) -> Reader<R> {
-        Reader(self.0.record_terminator(term))
+    pub fn record_terminator(mut self, term: RecordTerminator) -> Reader<R> {
+        self.csv = self.csv.record_terminator(term);
+        self
     }
 
     /// Set the quote character to use when reading CSV data.
@@ -291,8 +320,9 @@ impl<R: Read> Reader<R> {
     /// The default value is `b'"'`.
     ///
     /// If `quote` is `None`, then no quoting will be used.
-    pub fn quote(self, quote: u8) -> Reader<R> {
-        Reader(self.0.quote(quote))
+    pub fn quote(mut self, quote: u8) -> Reader<R> {
+        self.csv = self.csv.quote(quote);
+        self
     }
 
     /// Set the escape character to use when reading CSV data.
@@ -305,15 +335,17 @@ impl<R: Read> Reader<R> {
     ///
     /// When set to something other than `None`, it is used as the escape
     /// character for quotes. (e.g., `b'\\'`.)
-    pub fn escape(self, escape: Option<u8>) -> Reader<R> {
-        Reader(self.0.escape(escape))
+    pub fn escape(mut self, escape: Option<u8>) -> Reader<R> {
+        self.csv = self.csv.escape(escape);
+        self
     }
 
     /// Enable double quote escapes.
     ///
     /// When disabled, doubled quotes are not interpreted as escapes.
-    pub fn double_quote(self, yes: bool) -> Reader<R> {
-        Reader(self.0.double_quote(yes))
+    pub fn double_quote(mut self, yes: bool) -> Reader<R> {
+        self.csv = self.csv.double_quote(yes);
+        self
     }
 
     /// A convenience method for reading ASCII delimited text.
@@ -323,8 +355,9 @@ impl<R: Read> Reader<R> {
     ///
     /// Since ASCII delimited text is meant to be unquoted, this also sets
     /// `quote` to `None`.
-    pub fn ascii(self) -> Reader<R> {
-        Reader(self.0.ascii())
+    pub fn ascii(mut self) -> Reader<R> {
+        self.csv = self.csv.ascii();
+        self
     }
 }
 
