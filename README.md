@@ -26,13 +26,14 @@ struct Record {
 }
 
 fn main() {
-    let data = "
-    count,animal,description
-    7,penguin,happy
-    10,cheetah,fast
-    4,armadillo,armored
-    9,platypus,unique
-    7,mouse,small";
+    let data = "\
+count,animal,description
+7,penguin,happy
+10,cheetah,fast
+4,armadillo,armored
+9,platypus,unique
+7,mouse,small
+";
 
     let rdr = typed_csv::Reader::from_string(data);
     for row in rdr.decode() {
@@ -70,12 +71,12 @@ fn main() {
     }
 
     assert_eq!(wtr.as_string(), "\
-    count,animal,description
-    7,penguin,happy
-    10,cheetah,fast
-    4,armadillo,armored
-    9,platypus,unique
-    ");
+count,animal,description
+7,penguin,happy
+10,cheetah,fast
+4,armadillo,armored
+9,platypus,unique
+");
 }
 ```
 

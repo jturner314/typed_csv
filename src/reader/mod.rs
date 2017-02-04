@@ -38,13 +38,14 @@ use self::field_names_decoder::FieldNamesDecoder;
 ///     description: String,
 /// }
 ///
-/// let data = "
+/// let data = "\
 /// count,animal,description
 /// 7,penguin,happy
 /// 10,cheetah,fast
 /// 4,armadillo,armored
 /// 9,platypus,unique
-/// 7,mouse,small";
+/// 7,mouse,small
+/// ";
 ///
 /// let rdr = typed_csv::Reader::from_string(data);
 /// for row in rdr.decode() {
@@ -69,11 +70,12 @@ use self::field_names_decoder::FieldNamesDecoder;
 /// #     description: String,
 /// # }
 /// #
-/// let bad_data = "
+/// let bad_data = "\
 /// bad,header,row
 /// 7,penguin,happy
 /// 10,cheetah,fast
-/// 7,mouse,small";
+/// 7,mouse,small
+/// ";
 ///
 /// assert!(typed_csv::Reader::from_string(bad_data)
 ///     .decode()
@@ -158,11 +160,12 @@ impl<R: Read> Reader<R> {
     ///     description: String,
     /// }
     ///
-    /// let data = "
+    /// let data = "\
     /// count,animal,description
     /// 7,penguin,happy
     /// 10,cheetah,fast
-    /// 4,armadillo,armored";
+    /// 4,armadillo,armored
+    /// ";
     ///
     /// let rdr = typed_csv::Reader::from_string(data);
     /// let rows = rdr.decode().collect::<typed_csv::Result<Vec<Record>>>().unwrap();
@@ -215,10 +218,11 @@ impl<R: Read> Reader<R> {
     ///     size: usize,
     /// }
     ///
-    /// let data = "
+    /// let data = "\
     /// name1,\"name2\",dist,dist2,size
     /// foo,bar,1,1,2
-    /// foo,baz,,1.5,3";
+    /// foo,baz,,1.5,3
+    /// ";
     ///
     /// let mut rdr = typed_csv::Reader::from_string(data);
     /// let rows = rdr.decode().collect::<typed_csv::Result<Vec<(Part1, Part2)>>>().unwrap();
