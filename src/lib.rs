@@ -9,8 +9,10 @@
 //! Otherwise, this crate's interface is effectively just a subset of the
 //! [`csv`][csv] crate's interface.
 //!
-//! If you don't care if the headers match the decoded type or you want to
-//! write your own headers, see the [`csv`][csv] crate.
+//! The reader can optionally reorder columns to match headers to field names.
+//! If you don't care at all if the headers match the field names (when
+//! reading) or you want to write your own headers (when writing), see the
+//! [`csv`][csv] crate.
 //!
 //! # Examples
 //!

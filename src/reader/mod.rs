@@ -19,7 +19,11 @@ use self::field_names_decoder::FieldNamesDecoder;
 /// [`decode()`](#method.decode) method that checks that the headers match the
 /// field names in the record type.
 ///
-/// If you don't care whether the headers match the field names, see the
+/// If the ordering of the headers in the file doesn't matter for your use
+/// case, you can ask the reader to [reorder](#method.reorder) the columns to
+/// match the headers to the corresponding field names.
+///
+/// If you don't care whether the headers match the field names at all, see the
 /// [`csv`][csv] crate.
 ///
 /// # Example
@@ -56,8 +60,10 @@ use self::field_names_decoder::FieldNamesDecoder;
 /// # }
 /// ```
 ///
-/// Note that the headers must match the field names in `Record`. If the header
-/// row is incorrect, the iterator will return an `Err`:
+/// Note that the headers must match the field names in `Record` (although you
+/// can ask the reader to [reorder](#method.reorder) the columns to match the
+/// headers to the field names). If the header row is incorrect, the iterator
+/// will return an `Err`:
 ///
 /// ```rust
 /// # extern crate rustc_serialize;
@@ -142,12 +148,15 @@ impl<R: Read> Reader<R> {
     /// record*. This can be a single struct, or arbitrarily nested tuples and
     /// structs, as long as all scalar types (integers, floats, characters,
     /// strings, single-element tuple structs containing a scalar type, and
-    /// enums with 0 or 1 scalar arguments) are fields in structs. If the
-    /// headers don't match the field names or a record cannot be decoded into
-    /// the type requested, an error is returned.
+    /// enums with 0 or 1 scalar arguments) are fields in structs.
     ///
-    /// Enums are also supported in a limited way. Namely, its variants must
-    /// have exactly `1` parameter each. Each variant decodes based on its
+    /// If the headers don't match the field names or a record cannot be
+    /// decoded into the type requested, an error is returned. See the
+    /// [`reorder`](method.reorder) method if you'd like for the reader to
+    /// automatically reorder columns to match headers to field names.
+    ///
+    /// Enums are supported in a limited way. Namely, its variants must have
+    /// exactly `1` parameter each. Each variant decodes based on its
     /// constituent type and variants are tried in the order that they appear
     /// in their `enum` definition. See below for examples.
     ///
@@ -280,6 +289,88 @@ impl<R: Read> Reader<R> {
     ///
     /// In the case of duplicate field names, the ordering of columns
     /// corresponding to those fields will be preserved.
+    ///
+    /// # Examples
+    ///
+    /// This is a simple example that demonstrates reordering the columns to
+    /// match headers to field names:
+    ///
+    /// ```rust
+    /// extern crate rustc_serialize;
+    /// # extern crate typed_csv;
+    /// # fn main() {
+    ///
+    /// #[derive(Debug, PartialEq, RustcDecodable)]
+    /// struct Record {
+    ///     count: usize,
+    ///     animal: String,
+    ///     description: String,
+    /// }
+    ///
+    /// let data = "\
+    /// count,description,animal
+    /// 7,happy,penguin
+    /// 10,fast,cheetah
+    /// 4,armored,armadillo
+    /// ";
+    ///
+    /// let rdr = typed_csv::Reader::from_string(data);
+    /// let rows = rdr.reorder(true).decode().collect::<typed_csv::Result<Vec<Record>>>().unwrap();
+    ///
+    /// assert_eq!(rows,
+    ///            vec![Record {
+    ///                     count: 7,
+    ///                     animal: "penguin".to_string(),
+    ///                     description: "happy".to_string(),
+    ///                 },
+    ///                 Record {
+    ///                     count: 10,
+    ///                     animal: "cheetah".to_string(),
+    ///                     description: "fast".to_string(),
+    ///                 },
+    ///                 Record {
+    ///                     count: 4,
+    ///                     animal: "armadillo".to_string(),
+    ///                     description: "armored".to_string(),
+    ///                 }]);
+    /// # }
+    /// ```
+    ///
+    /// Duplicate field names in decodable types are fine, and ordering of
+    /// columns with duplicate headers is preserved:
+    ///
+    /// ```rust
+    /// extern crate rustc_serialize;
+    /// # extern crate typed_csv;
+    /// # fn main() {
+    ///
+    /// #[derive(Debug, PartialEq, RustcDecodable)]
+    /// struct Animal {
+    ///     count: usize,
+    ///     animal: String,
+    /// }
+    ///
+    /// let data = "\
+    /// count,animal,animal,count
+    /// 7,penguin,\"red panda\",2
+    /// 10,cheetah,fennec,9
+    /// 4,armadillo,quokka,3
+    /// ";
+    ///
+    /// type Record = (Animal, Animal);
+    ///
+    /// let rdr = typed_csv::Reader::from_string(data);
+    /// let rows = rdr.reorder(true).decode().collect::<typed_csv::Result<Vec<Record>>>().unwrap();
+    ///
+    /// assert_eq!(rows,
+    ///            vec![(Animal { count: 7, animal: "penguin".to_string() },
+    ///                  Animal { count: 2, animal: "red panda".to_string() }),
+    ///                 (Animal { count: 10, animal: "cheetah".to_string() },
+    ///                  Animal { count: 9, animal: "fennec".to_string() }),
+    ///                 (Animal { count: 4, animal: "armadillo".to_string() },
+    ///                  Animal { count: 3, animal: "quokka".to_string() })]);
+    /// # }
+    /// ```
     pub fn reorder(mut self, reorder: bool) -> Reader<R> {
         self.reorder = reorder;
         self
