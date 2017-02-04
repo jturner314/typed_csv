@@ -1,0 +1,8 @@
+[package]
+name = "typed_csv"
+version = "0.1.0"
+authors = ["Jim Turner <rust@turner.link>"]
+
+[dependencies]
+csv = "0.15"
+rustc-serialize = "0.3"
