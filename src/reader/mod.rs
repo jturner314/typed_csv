@@ -379,7 +379,7 @@ impl<'a, R, D: Decodable> Iterator for DecodedRecords<R, D>
             };
 
             // Check that the headers match the decodable type.
-            let mut field_names_decoder = FieldNamesDecoder::new(headers.clone());
+            let mut field_names_decoder = FieldNamesDecoder::new();
             if let Err(e) = D::decode(&mut field_names_decoder) {
                 self.errored = true;
                 return Some(Err(e));

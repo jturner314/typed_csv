@@ -12,8 +12,7 @@ pub struct FieldNamesDecoder {
 
 impl FieldNamesDecoder {
     /// Creates a new `FieldNamesDecoder` from a record of byte strings.
-    pub fn new(mut bytes: Vec<ByteString>) -> FieldNamesDecoder {
-        bytes.reverse();
+    pub fn new() -> FieldNamesDecoder {
         FieldNamesDecoder {
             field_names: Vec::new(),
         }
