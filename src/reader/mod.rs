@@ -344,12 +344,11 @@ pub struct DecodedRecords<R, D: Decodable> {
     record_type: PhantomData<D>,
 }
 
-impl<'a, R, D: Decodable> Iterator for DecodedRecords<R, D>
-    where R: Read
-{
-    type Item = Result<D>;
 
-    fn next(&mut self) -> Option<Result<D>> {
+impl<R: Read, D: Decodable> DecodedRecords<R, D> {
+    /// This is wrapped in the `next()` method to ensure that `self.errored` is
+    /// always set properly.
+    fn next_impl(&mut self) -> Option<Result<D>> {
         if !self.done_first {
             // Never do this special first record processing again.
             self.done_first = true;
@@ -375,12 +374,10 @@ impl<'a, R, D: Decodable> Iterator for DecodedRecords<R, D>
             // Check that the headers match the decodable type.
             let mut field_names_decoder = FieldNamesDecoder::new();
             if let Err(e) = D::decode(&mut field_names_decoder) {
-                self.errored = true;
                 return Some(Err(e));
             }
             let field_names = field_names_decoder.into_field_names();
             if headers != field_names {
-                self.errored = true;
                 return Some(Err(Error::Decode("Headers don't match field names".to_string())));
             }
 
@@ -401,13 +398,26 @@ impl<'a, R, D: Decodable> Iterator for DecodedRecords<R, D>
                     break;
                 }
                 NextField::Error(err) => {
-                    self.errored = true;
                     return Some(Err(err));
                 }
                 NextField::Data(field) => record.push(field.to_vec()),
             }
         }
         Some(Decodable::decode(&mut Decoded::new(record)))
+    }
+}
+
+impl<R: Read, D: Decodable> Iterator for DecodedRecords<R, D> {
+    type Item = Result<D>;
+
+    fn next(&mut self) -> Option<Result<D>> {
+        match self.next_impl() {
+            Some(Err(err)) => {
+                self.errored = true;
+                Some(Err(err))
+            }
+            other @ _ => other,
+        }
     }
 }
 
