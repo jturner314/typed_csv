@@ -79,6 +79,12 @@ fn main() {
 }
 ```
 
+## Issues
+
+This crate needs more tests, and it probably has a few bugs.
+Please [file an issue](https://github.com/jturner314/typed_csv/issues/new) if
+you find any bugs.
+
 ## License
 
 Significant portions of this crate are closely based on code from
