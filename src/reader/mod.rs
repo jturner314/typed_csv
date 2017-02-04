@@ -247,7 +247,7 @@ impl<R: Read> Reader<R> {
     pub fn decode<D: Decodable>(self) -> DecodedRecords<R, D> {
         DecodedRecords {
             p: self.0,
-            first: false,
+            done_first: false,
             errored: false,
             record_len: 0,
             record_type: PhantomData,
@@ -338,7 +338,7 @@ impl<R: Read> Reader<R> {
 /// The `D` type parameter refers to the decoded type.
 pub struct DecodedRecords<R, D: Decodable> {
     p: csv::Reader<R>,
-    first: bool,
+    done_first: bool,
     errored: bool,
     record_len: usize,
     record_type: PhantomData<D>,
@@ -350,19 +350,13 @@ impl<'a, R, D: Decodable> Iterator for DecodedRecords<R, D>
     type Item = Result<D>;
 
     fn next(&mut self) -> Option<Result<D>> {
-        // We check this before checking `done` because the parser could
-        // be done after a call to `byte_headers` but before any iterator
-        // traversal. Once we start the iterator, we must allow the first
-        // row to be returned if the caller has said that this CSV data
-        // has no headers.
-        if !self.first {
+        if !self.done_first {
             // Never do this special first record processing again.
-            self.first = true;
+            self.done_first = true;
 
-            // Always consume the header record. This let's us choose to
-            // return it or ignore it and move on to the next record.
-            // If headers have been read before this point, then this is
-            // equivalent to a harmless clone (and no parser progression).
+            // Always consume the header record. If headers have been read
+            // before this point, then this is equivalent to a harmless clone
+            // (and no parser progression).
             let headers = self.p.byte_headers();
 
             // If the header row is empty, then the CSV data contains
@@ -393,7 +387,7 @@ impl<'a, R, D: Decodable> Iterator for DecodedRecords<R, D>
             // Set the record length.
             self.record_len = headers.len();
         }
-        // OK, we're done checking the weird first-record-corner-case.
+
         if self.p.done() || self.errored {
             return None;
         }
