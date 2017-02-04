@@ -2,10 +2,11 @@ mod field_names_decoder;
 
 use std::fs::File;
 use std::io::{Cursor, Read};
+use std::iter;
 use std::marker::PhantomData;
 use std::path::Path;
 
-use csv::{self, Decoded, Error, NextField, RecordTerminator, Result};
+use csv::{self, ByteString, Decoded, Error, NextField, RecordTerminator, Result};
 use rustc_serialize::Decodable;
 
 use self::field_names_decoder::FieldNamesDecoder;
@@ -260,10 +261,11 @@ impl<R: Read> Reader<R> {
     /// ```
     pub fn decode<D: Decodable>(self) -> DecodedRecords<R, D> {
         DecodedRecords {
-            p: self.0,
+            p: self.csv,
+            reorder: self.reorder,
             done_first: false,
             errored: false,
-            record_len: 0,
+            column_mapping: Vec::new(),
             record_type: PhantomData,
         }
     }
@@ -371,12 +373,50 @@ impl<R: Read> Reader<R> {
 /// The `D` type parameter refers to the decoded type.
 pub struct DecodedRecords<R, D: Decodable> {
     p: csv::Reader<R>,
+    reorder: bool,
     done_first: bool,
     errored: bool,
-    record_len: usize,
+    /// Indices are column numbers and values are field numbers.
+    column_mapping: Vec<usize>,
     record_type: PhantomData<D>,
 }
 
+/// Determinines mapping of columns to fields according to headers and field names.
+///
+/// The mapping is a `Vec` of indices, where the indices of the `Vec` are the
+/// column indices, and the values of the `Vec` are the field indices.
+fn map_headers(headers: &[ByteString], field_names: &[ByteString], reorder: bool) -> Result<Vec<usize>> {
+    if headers.len() != field_names.len() {
+        return Err(Error::Decode(format!("The decodable type has {} field names, but there are {} headers",
+                                         field_names.len(),
+                                         headers.len())));
+    }
+    if reorder {
+        let mut mapping = Vec::with_capacity(headers.len());
+        // Whether fields have been used yet.
+        let mut used = iter::repeat(false).take(headers.len()).collect::<Vec<_>>();
+        for header in headers {
+            // Search for the first matching field that hasn't been used yet.
+            let found = field_names.iter().enumerate().find(|&(field_index, field)| header == field && !used[field_index]);
+            match found {
+                Some((field_index, _)) => {
+                    mapping.push(field_index);
+                    used[field_index] = true;
+                }
+                None => {
+                    return Err(Error::Decode("Headers don't match field names".to_string()));
+                }
+            }
+        }
+        Ok(mapping)
+    } else {
+        if headers == field_names {
+            Ok((0..headers.len()).collect())
+        } else {
+            Err(Error::Decode("Headers don't match field names".to_string()))
+        }
+    }
+}
 
 impl<R: Read, D: Decodable> DecodedRecords<R, D> {
     /// This is wrapped in the `next()` method to ensure that `self.errored` is
@@ -404,24 +444,30 @@ impl<R: Read, D: Decodable> DecodedRecords<R, D> {
                 Err(e) => return Some(Err(e)),
             };
 
-            // Check that the headers match the decodable type.
+            // Get the field names of the decodable type.
             let mut field_names_decoder = FieldNamesDecoder::new();
             if let Err(e) = D::decode(&mut field_names_decoder) {
                 return Some(Err(e));
             }
             let field_names = field_names_decoder.into_field_names();
-            if headers != field_names {
-                return Some(Err(Error::Decode("Headers don't match field names".to_string())));
-            }
 
-            // Set the record length.
-            self.record_len = headers.len();
+            // Determine mapping of headers to field names.
+            match map_headers(&headers, &field_names, self.reorder) {
+                Ok(mapping) => {
+                    self.column_mapping = mapping;
+                }
+                Err(err) => {
+                    return Some(Err(err));
+                }
+            }
         }
 
         if self.p.done() || self.errored {
             return None;
         }
-        let mut record = Vec::with_capacity(self.record_len);
+
+        let mut record = iter::repeat(Vec::new()).take(self.column_mapping.len()).collect::<Vec<_>>();
+        let mut column = 0;
         loop {
             match self.p.next_bytes() {
                 NextField::EndOfRecord | NextField::EndOfCsv => {
@@ -433,7 +479,14 @@ impl<R: Read, D: Decodable> DecodedRecords<R, D> {
                 NextField::Error(err) => {
                     return Some(Err(err));
                 }
-                NextField::Data(field) => record.push(field.to_vec()),
+                NextField::Data(field) => {
+                    if column < self.column_mapping.len() {
+                        record[self.column_mapping[column]] = field.to_vec();
+                        column += 1;
+                    } else {
+                        return Some(Err(Error::Decode("More data columns than headers".to_string())));
+                    }
+                }
             }
         }
         Some(Decodable::decode(&mut Decoded::new(record)))
@@ -473,6 +526,22 @@ mod tests {
     }
 
     #[test]
+    fn test_struct_allow_reorder() {
+        let rdr = Reader::from_string("b,a\n0,1\n2,3\n");
+        let records = rdr.reorder(true).decode().collect::<Result<Vec<SimpleStruct>>>().unwrap();
+        assert_eq!(records,
+                   vec![SimpleStruct { a: 1, b: 0 }, SimpleStruct { a: 3, b: 2 }]);
+    }
+
+    #[test]
+    fn test_struct_reordered_headers() {
+        let rdr = Reader::from_string("b,a\n0,1\n2,3\n");
+        let err = rdr.decode().collect::<Result<Vec<SimpleStruct>>>().unwrap_err();
+        assert_eq!(format!("{}", err),
+                   "CSV decode error: Headers don't match field names".to_string());
+    }
+
+    #[test]
     fn test_struct_misnamed_headers() {
         let rdr = Reader::from_string("c,d\n0,1\n");
         let err = rdr.decode().collect::<Result<Vec<SimpleStruct>>>().unwrap_err();
@@ -485,7 +554,7 @@ mod tests {
         let rdr = Reader::from_string("a\n0\n");
         let err = rdr.decode().collect::<Result<Vec<SimpleStruct>>>().unwrap_err();
         assert_eq!(format!("{}", err),
-                   "CSV decode error: Headers don't match field names".to_string());
+                   "CSV decode error: The decodable type has 2 field names, but there are 1 headers".to_string());
     }
 
     #[test]
@@ -493,7 +562,15 @@ mod tests {
         let rdr = Reader::from_string("a,b,c\n0,1\n");
         let err = rdr.decode().collect::<Result<Vec<SimpleStruct>>>().unwrap_err();
         assert_eq!(format!("{}", err),
-                   "CSV decode error: Headers don't match field names".to_string());
+                   "CSV decode error: The decodable type has 2 field names, but there are 3 headers".to_string());
+    }
+
+    #[test]
+    fn test_struct_extra_data_column() {
+        let rdr = Reader::from_string("a,b\n0,1,2\n");
+        let err = rdr.decode().collect::<Result<Vec<SimpleStruct>>>().unwrap_err();
+        assert_eq!(format!("{}", err),
+                   "CSV decode error: More data columns than headers".to_string());
     }
 
     #[test]
@@ -503,6 +580,15 @@ mod tests {
         assert_eq!(records,
                    vec![(SimpleStruct { a: 0, b: 1 }, SimpleStruct { a: 2, b: 3 }),
                         (SimpleStruct { a: 4, b: 5 }, SimpleStruct { a: 6, b: 7 })]);
+    }
+
+    #[test]
+    fn test_tuple_of_structs_allow_reorder() {
+        let rdr = Reader::from_string("b,a,a,b\n0,1,2,3\n\n4,5,6,7\n");
+        let records = rdr.reorder(true).decode().collect::<Result<Vec<(SimpleStruct, SimpleStruct)>>>().unwrap();
+        assert_eq!(records,
+                   vec![(SimpleStruct { a: 1, b: 0 }, SimpleStruct { a: 2, b: 3 }),
+                        (SimpleStruct { a: 5, b: 4 }, SimpleStruct { a: 6, b: 7 })]);
     }
 
     #[test]
