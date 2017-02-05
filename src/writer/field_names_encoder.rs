@@ -21,14 +21,14 @@ impl FieldNamesEncoder {
         self.record
     }
 
-    fn push_bytes<'a, S>(&mut self, s: S) -> Result<()>
+    fn push_bytes<S>(&mut self, s: S) -> Result<()>
         where S: Into<Vec<u8>>
     {
         self.record.push(s.into());
         Ok(())
     }
 
-    fn push_string<'a, S>(&mut self, s: S) -> Result<()>
+    fn push_string<S>(&mut self, s: S) -> Result<()>
         where S: Into<String>
     {
         self.push_bytes(s.into().into_bytes())

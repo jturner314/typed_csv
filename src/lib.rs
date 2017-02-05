@@ -28,7 +28,7 @@
 //!
 //! Significant portions of this crate are closely based on code from the
 //! [`csv`][csv] crate, which is dual-licensed under the Unlicense and MIT
-//! licenses. Many thanks to [BurntSushi](http://burntsushi.net/) (Andrew
+//! licenses. Many thanks to [burntsushi](http://burntsushi.net/) (Andrew
 //! Gallant) for creating such a fast and featureful CSV crate!
 //!
 //! This crate is similarly dual-licensed under the Unlicense and MIT licenses.

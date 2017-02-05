@@ -123,12 +123,12 @@ impl<E: Encodable> Writer<Vec<u8>, E> {
     }
 
     /// Returns the written CSV data as a string.
-    pub fn as_string<'r>(&'r mut self) -> &'r str {
+    pub fn as_string(&mut self) -> &str {
         self.csv.as_string()
     }
 
     /// Returns the encoded CSV data as raw bytes.
-    pub fn as_bytes<'r>(&'r mut self) -> &'r [u8] {
+    pub fn as_bytes(&mut self) -> &[u8] {
         self.csv.as_bytes()
     }
 

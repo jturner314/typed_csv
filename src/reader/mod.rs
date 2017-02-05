@@ -130,14 +130,14 @@ impl Reader<File> {
 
 impl Reader<Cursor<Vec<u8>>> {
     /// Creates a CSV reader for an in memory string buffer.
-    pub fn from_string<'a, S>(s: S) -> Reader<Cursor<Vec<u8>>>
+    pub fn from_string<S>(s: S) -> Reader<Cursor<Vec<u8>>>
         where S: Into<String>
     {
         Reader::from_csv_reader(csv::Reader::from_string(s))
     }
 
     /// Creates a CSV reader for an in memory buffer of bytes.
-    pub fn from_bytes<'a, V>(bytes: V) -> Reader<Cursor<Vec<u8>>>
+    pub fn from_bytes<V>(bytes: V) -> Reader<Cursor<Vec<u8>>>
         where V: Into<Vec<u8>>
     {
         Reader::from_csv_reader(csv::Reader::from_bytes(bytes))
@@ -526,12 +526,10 @@ fn map_headers(headers: &[ByteString],
             }
         }
         Ok(mapping)
+    } else if headers.iter().zip(field_names).all(|(h, f)| predicate(h, f)) {
+        Ok((0..headers.len()).collect())
     } else {
-        if headers.iter().zip(field_names).all(|(h, f)| predicate(h, f)) {
-            Ok((0..headers.len()).collect())
-        } else {
-            Err(Error::Decode("Headers don't match field names".to_string()))
-        }
+        Err(Error::Decode("Headers don't match field names".to_string()))
     }
 }
 
@@ -589,7 +587,7 @@ impl<R: Read, D: Decodable> DecodedRecords<R, D> {
         loop {
             match self.p.next_bytes() {
                 NextField::EndOfRecord | NextField::EndOfCsv => {
-                    if record.len() == 0 {
+                    if record.is_empty() {
                         return None;
                     }
                     break;
@@ -621,7 +619,7 @@ impl<R: Read, D: Decodable> Iterator for DecodedRecords<R, D> {
                 self.errored = true;
                 Some(Err(err))
             }
-            other @ _ => other,
+            other => other,
         }
     }
 }
