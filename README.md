@@ -1,4 +1,4 @@
-# `typed_csv`
+# typed_csv
 
 [![Build Status](https://travis-ci.org/jturner314/typed_csv.svg?branch=master)](https://travis-ci.org/jturner314/typed_csv)
 
