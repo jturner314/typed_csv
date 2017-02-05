@@ -1,5 +1,7 @@
 # `typed_csv`
 
+[![Build Status](https://travis-ci.org/jturner314/typed_csv.svg?branch=master)](https://travis-ci.org/jturner314/typed_csv)
+
 This crate provides wrappers for the reader and writer in the [`csv`][csv]
 crate that provide checking of the CSV headers (when reading) and automatically
 writing the CSV headers (when writing) according to the field names in the
