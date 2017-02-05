@@ -1,5 +1,6 @@
 mod field_names_decoder;
 
+use std::ascii::AsciiExt;
 use std::fs::File;
 use std::io::{Cursor, Read};
 use std::iter;
@@ -21,7 +22,8 @@ use self::field_names_decoder::FieldNamesDecoder;
 ///
 /// If the ordering of the headers in the file doesn't matter for your use
 /// case, you can ask the reader to [reorder](#method.reorder) the columns to
-/// match the headers to the corresponding field names.
+/// match the headers to the corresponding field names. You also specify that
+/// the headers are [case-insensitive](#method.ignore_ascii_case).
 ///
 /// If you don't care whether the headers match the field names at all, see the
 /// [`csv`][csv] crate.
@@ -96,6 +98,7 @@ use self::field_names_decoder::FieldNamesDecoder;
 pub struct Reader<R: Read> {
     csv: csv::Reader<R>,
     reorder: bool,
+    ignore_ascii_case: bool,
 }
 
 impl<R: Read> Reader<R> {
@@ -107,6 +110,7 @@ impl<R: Read> Reader<R> {
         Reader {
             csv: csv,
             reorder: false,
+            ignore_ascii_case: false,
         }
     }
 
@@ -272,6 +276,7 @@ impl<R: Read> Reader<R> {
         DecodedRecords {
             p: self.csv,
             reorder: self.reorder,
+            ignore_ascii_case: self.ignore_ascii_case,
             done_first: false,
             errored: false,
             column_mapping: Vec::new(),
@@ -376,6 +381,15 @@ impl<R: Read> Reader<R> {
         self
     }
 
+    /// When matching headers to field names, use an ASCII case-insensitive
+    /// match.
+    ///
+    /// The default value is `false`.
+    pub fn ignore_ascii_case(mut self, yes: bool) -> Reader<R> {
+        self.ignore_ascii_case = yes;
+        self
+    }
+
     /// The delimiter to use when reading CSV data.
     ///
     /// Since the CSV reader is meant to be mostly encoding agnostic, you must
@@ -465,6 +479,7 @@ impl<R: Read> Reader<R> {
 pub struct DecodedRecords<R, D: Decodable> {
     p: csv::Reader<R>,
     reorder: bool,
+    ignore_ascii_case: bool,
     done_first: bool,
     errored: bool,
     /// Indices are column numbers and values are field numbers.
@@ -476,19 +491,26 @@ pub struct DecodedRecords<R, D: Decodable> {
 ///
 /// The mapping is a `Vec` of indices, where the indices of the `Vec` are the
 /// column indices, and the values of the `Vec` are the field indices.
-fn map_headers(headers: &[ByteString], field_names: &[ByteString], reorder: bool) -> Result<Vec<usize>> {
+fn map_headers(headers: &[ByteString], field_names: &[ByteString], reorder: bool, ignore_ascii_case: bool) -> Result<Vec<usize>> {
     if headers.len() != field_names.len() {
         return Err(Error::Decode(format!("The decodable type has {} field names, but there are {} headers",
                                          field_names.len(),
                                          headers.len())));
     }
+    let predicate = if ignore_ascii_case {
+        <[u8]>::eq_ignore_ascii_case
+    } else {
+        <[u8]>::eq
+    };
     if reorder {
         let mut mapping = Vec::with_capacity(headers.len());
         // Whether fields have been used yet.
         let mut used = iter::repeat(false).take(headers.len()).collect::<Vec<_>>();
         for header in headers {
             // Search for the first matching field that hasn't been used yet.
-            let found = field_names.iter().enumerate().find(|&(field_index, field)| header == field && !used[field_index]);
+            let found = field_names.iter()
+                .enumerate()
+                .find(|&(field_index, field)| predicate(header, field) && !used[field_index]);
             match found {
                 Some((field_index, _)) => {
                     mapping.push(field_index);
@@ -501,7 +523,7 @@ fn map_headers(headers: &[ByteString], field_names: &[ByteString], reorder: bool
         }
         Ok(mapping)
     } else {
-        if headers == field_names {
+        if headers.iter().zip(field_names).all(|(h, f)| predicate(h, f)) {
             Ok((0..headers.len()).collect())
         } else {
             Err(Error::Decode("Headers don't match field names".to_string()))
@@ -543,7 +565,7 @@ impl<R: Read, D: Decodable> DecodedRecords<R, D> {
             let field_names = field_names_decoder.into_field_names();
 
             // Determine mapping of headers to field names.
-            match map_headers(&headers, &field_names, self.reorder) {
+            match map_headers(&headers, &field_names, self.reorder, self.ignore_ascii_case) {
                 Ok(mapping) => {
                     self.column_mapping = mapping;
                 }
@@ -625,8 +647,24 @@ mod tests {
     }
 
     #[test]
+    fn test_struct_ignore_ascii_case() {
+        let rdr = Reader::from_string("a,B\n0,1\n2,3\n");
+        let records = rdr.ignore_ascii_case(true).decode().collect::<Result<Vec<SimpleStruct>>>().unwrap();
+        assert_eq!(records,
+                   vec![SimpleStruct { a: 0, b: 1 }, SimpleStruct { a: 2, b: 3 }]);
+    }
+
+    #[test]
     fn test_struct_reordered_headers() {
         let rdr = Reader::from_string("b,a\n0,1\n2,3\n");
+        let err = rdr.decode().collect::<Result<Vec<SimpleStruct>>>().unwrap_err();
+        assert_eq!(format!("{}", err),
+                   "CSV decode error: Headers don't match field names".to_string());
+    }
+
+    #[test]
+    fn test_struct_wrong_case() {
+        let rdr = Reader::from_string("a,B\n0,1\n2,3\n");
         let err = rdr.decode().collect::<Result<Vec<SimpleStruct>>>().unwrap_err();
         assert_eq!(format!("{}", err),
                    "CSV decode error: Headers don't match field names".to_string());

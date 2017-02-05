@@ -1,9 +1,9 @@
 # `typed_csv`
 
 This crate provides wrappers for the reader and writer in the [`csv`][csv]
-crate that provide checking (and optionally reordering) of the CSV headers
-(when reading) and automatically writing the CSV headers (when writing)
-according to the field names in the record type.
+crate that provide checking of the CSV headers (when reading) and automatically
+writing the CSV headers (when writing) according to the field names in the
+record type.
 
 ## Documentation
 
@@ -12,8 +12,9 @@ Run `cargo doc --open` in this repository.
 ## Simple examples
 
 The reader does type-based decoding for each record in the CSV data. It checks
-that the headers match the field names in the record type. If desired, the
-reader can reorder columns to match headers to field names.
+that the headers match the field names in the record type. The reader can
+optionally reorder columns to match headers to field names and/or treat headers
+as case-insensitive.
 
 ```rust
 extern crate rustc_serialize;
