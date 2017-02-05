@@ -2,6 +2,16 @@
 name = "typed_csv"
 version = "0.1.0"
 authors = ["Jim Turner <rust@turner.link>"]
+description = "Wrappers for the csv crate to provide additional type-based functionality"
+homepage = "https://github.com/jturner314/typed_csv"
+repository = "https://github.com/jturner314/typed_csv"
+readme = "README.md"
+keywords = ["csv"]
+categories = ["encoding", "parsing"]
+license = "Unlicense/MIT"
+
+[badges]
+travis-ci = { repository = "jturner314/typed_csv" }
 
 [dependencies]
 csv = "0.15"
