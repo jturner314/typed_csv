@@ -1,7 +1,6 @@
-use std::default::Default;
-
 use csv::{ByteString, Error, Result};
 use rustc_serialize::Decoder;
+use std::default::Default;
 
 /// Decoder to extract field names from types that implement
 /// `rustc_serialize::Decodable`.
@@ -13,9 +12,7 @@ pub struct FieldNamesDecoder {
 impl FieldNamesDecoder {
     /// Creates a new `FieldNamesDecoder` from a record of byte strings.
     pub fn new() -> FieldNamesDecoder {
-        FieldNamesDecoder {
-            field_names: Vec::new(),
-        }
+        FieldNamesDecoder { field_names: Vec::new() }
     }
 
     pub fn into_field_names(self) -> Vec<ByteString> {

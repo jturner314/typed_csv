@@ -1,14 +1,13 @@
 mod field_names_encoder;
 
+use self::field_names_encoder::FieldNamesEncoder;
+
+use csv::{self, Result};
+use rustc_serialize::Encodable;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::path::Path;
-
-use csv::{self, Result};
-use rustc_serialize::Encodable;
-
-use self::field_names_encoder::FieldNamesEncoder;
 
 /// A CSV writer that automatically writes the headers.
 ///

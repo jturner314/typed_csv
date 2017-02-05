@@ -1,16 +1,15 @@
 mod field_names_decoder;
 
+use self::field_names_decoder::FieldNamesDecoder;
+
+use csv::{self, ByteString, Decoded, Error, NextField, RecordTerminator, Result};
+use rustc_serialize::Decodable;
 use std::ascii::AsciiExt;
 use std::fs::File;
 use std::io::{Cursor, Read};
 use std::iter;
 use std::marker::PhantomData;
 use std::path::Path;
-
-use csv::{self, ByteString, Decoded, Error, NextField, RecordTerminator, Result};
-use rustc_serialize::Decodable;
-
-use self::field_names_decoder::FieldNamesDecoder;
 
 /// A CSV reader that checks the headers.
 ///
@@ -491,9 +490,14 @@ pub struct DecodedRecords<R, D: Decodable> {
 ///
 /// The mapping is a `Vec` of indices, where the indices of the `Vec` are the
 /// column indices, and the values of the `Vec` are the field indices.
-fn map_headers(headers: &[ByteString], field_names: &[ByteString], reorder: bool, ignore_ascii_case: bool) -> Result<Vec<usize>> {
+fn map_headers(headers: &[ByteString],
+               field_names: &[ByteString],
+               reorder: bool,
+               ignore_ascii_case: bool)
+               -> Result<Vec<usize>> {
     if headers.len() != field_names.len() {
-        return Err(Error::Decode(format!("The decodable type has {} field names, but there are {} headers",
+        return Err(Error::Decode(format!("The decodable type has {} field names, but there are \
+                                          {} headers",
                                          field_names.len(),
                                          headers.len())));
     }
@@ -579,7 +583,8 @@ impl<R: Read, D: Decodable> DecodedRecords<R, D> {
             return None;
         }
 
-        let mut record = iter::repeat(Vec::new()).take(self.column_mapping.len()).collect::<Vec<_>>();
+        let mut record =
+            iter::repeat(Vec::new()).take(self.column_mapping.len()).collect::<Vec<_>>();
         let mut column = 0;
         loop {
             match self.p.next_bytes() {
@@ -597,7 +602,8 @@ impl<R: Read, D: Decodable> DecodedRecords<R, D> {
                         record[self.column_mapping[column]] = field.to_vec();
                         column += 1;
                     } else {
-                        return Some(Err(Error::Decode("More data columns than headers".to_string())));
+                        return Some(Err(Error::Decode("More data columns than headers"
+                            .to_string())));
                     }
                 }
             }
@@ -649,7 +655,8 @@ mod tests {
     #[test]
     fn test_struct_ignore_ascii_case() {
         let rdr = Reader::from_string("a,B\n0,1\n2,3\n");
-        let records = rdr.ignore_ascii_case(true).decode().collect::<Result<Vec<SimpleStruct>>>().unwrap();
+        let records =
+            rdr.ignore_ascii_case(true).decode().collect::<Result<Vec<SimpleStruct>>>().unwrap();
         assert_eq!(records,
                    vec![SimpleStruct { a: 0, b: 1 }, SimpleStruct { a: 2, b: 3 }]);
     }
@@ -683,7 +690,9 @@ mod tests {
         let rdr = Reader::from_string("a\n0\n");
         let err = rdr.decode().collect::<Result<Vec<SimpleStruct>>>().unwrap_err();
         assert_eq!(format!("{}", err),
-                   "CSV decode error: The decodable type has 2 field names, but there are 1 headers".to_string());
+                   "CSV decode error: The decodable type has 2 field names, but there are 1 \
+                    headers"
+                       .to_string());
     }
 
     #[test]
@@ -691,7 +700,9 @@ mod tests {
         let rdr = Reader::from_string("a,b,c\n0,1\n");
         let err = rdr.decode().collect::<Result<Vec<SimpleStruct>>>().unwrap_err();
         assert_eq!(format!("{}", err),
-                   "CSV decode error: The decodable type has 2 field names, but there are 3 headers".to_string());
+                   "CSV decode error: The decodable type has 2 field names, but there are 3 \
+                    headers"
+                       .to_string());
     }
 
     #[test]
@@ -714,7 +725,10 @@ mod tests {
     #[test]
     fn test_tuple_of_structs_allow_reorder() {
         let rdr = Reader::from_string("b,a,a,b\n0,1,2,3\n\n4,5,6,7\n");
-        let records = rdr.reorder(true).decode().collect::<Result<Vec<(SimpleStruct, SimpleStruct)>>>().unwrap();
+        let records = rdr.reorder(true)
+            .decode()
+            .collect::<Result<Vec<(SimpleStruct, SimpleStruct)>>>()
+            .unwrap();
         assert_eq!(records,
                    vec![(SimpleStruct { a: 1, b: 0 }, SimpleStruct { a: 2, b: 3 }),
                         (SimpleStruct { a: 5, b: 4 }, SimpleStruct { a: 6, b: 7 })]);
