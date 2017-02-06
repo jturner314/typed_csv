@@ -20,9 +20,10 @@ use std::path::Path;
 /// field names in the record type.
 ///
 /// If the ordering of the headers in the file doesn't matter for your use
-/// case, you can ask the reader to [reorder](#method.reorder) the columns to
-/// match the headers to the corresponding field names. You also specify that
-/// the headers are [case-insensitive](#method.ignore_ascii_case).
+/// case, you can ask the reader to [reorder the
+/// columns](#method.reorder_columns) to match the headers to the corresponding
+/// field names. You also specify that the headers are
+/// [case-insensitive](#method.ignore_ascii_case).
 ///
 /// If you don't care whether the headers match the field names at all, see the
 /// [`csv`][csv] crate.
@@ -62,9 +63,9 @@ use std::path::Path;
 /// ```
 ///
 /// Note that the headers must match the field names in `Record` (although you
-/// can ask the reader to [reorder](#method.reorder) the columns to match the
-/// headers to the field names). If the header row is incorrect, the iterator
-/// will return an `Err`:
+/// can ask the reader to [reorder the columns](#method.reorder_columns) to
+/// match the headers to the field names). If the header row is incorrect, the
+/// iterator will return an `Err`:
 ///
 /// ```rust
 /// # extern crate rustc_serialize;
@@ -96,7 +97,7 @@ use std::path::Path;
 /// [Decodable]: https://doc.rust-lang.org/rustc-serialize/rustc_serialize/trait.Decodable.html
 pub struct Reader<R: Read> {
     csv: csv::Reader<R>,
-    reorder: bool,
+    reorder_columns: bool,
     ignore_ascii_case: bool,
 }
 
@@ -108,7 +109,7 @@ impl<R: Read> Reader<R> {
     fn from_csv_reader(csv: csv::Reader<R>) -> Reader<R> {
         Reader {
             csv: csv,
-            reorder: false,
+            reorder_columns: false,
             ignore_ascii_case: false,
         }
     }
@@ -155,8 +156,9 @@ impl<R: Read> Reader<R> {
     ///
     /// If the headers don't match the field names or a record cannot be
     /// decoded into the type requested, an error is returned. See the
-    /// [`reorder`](method.reorder) method if you'd like for the reader to
-    /// automatically reorder columns to match headers to field names.
+    /// [`reorder_columns`](method.reorder_columns) method if you'd like for
+    /// the reader to automatically reorder columns to match headers to field
+    /// names.
     ///
     /// Enums are supported in a limited way. Namely, its variants must have
     /// exactly `1` parameter each. Each variant decodes based on its
@@ -274,7 +276,7 @@ impl<R: Read> Reader<R> {
     pub fn decode<D: Decodable>(self) -> DecodedRecords<R, D> {
         DecodedRecords {
             p: self.csv,
-            reorder: self.reorder,
+            reorder_columns: self.reorder_columns,
             ignore_ascii_case: self.ignore_ascii_case,
             done_first: false,
             errored: false,
@@ -319,7 +321,10 @@ impl<R: Read> Reader<R> {
     /// ";
     ///
     /// let rdr = typed_csv::Reader::from_string(data);
-    /// let rows = rdr.reorder(true).decode().collect::<typed_csv::Result<Vec<Record>>>().unwrap();
+    /// let rows = rdr.reorder_columns(true)
+    ///     .decode()
+    ///     .collect::<typed_csv::Result<Vec<Record>>>()
+    ///     .unwrap();
     ///
     /// assert_eq!(rows,
     ///            vec![Record {
@@ -364,7 +369,10 @@ impl<R: Read> Reader<R> {
     /// type Record = (Animal, Animal);
     ///
     /// let rdr = typed_csv::Reader::from_string(data);
-    /// let rows = rdr.reorder(true).decode().collect::<typed_csv::Result<Vec<Record>>>().unwrap();
+    /// let rows = rdr.reorder_columns(true)
+    ///     .decode()
+    ///     .collect::<typed_csv::Result<Vec<Record>>>()
+    ///     .unwrap();
     ///
     /// assert_eq!(rows,
     ///            vec![(Animal { count: 7, animal: "penguin".to_string() },
@@ -375,8 +383,8 @@ impl<R: Read> Reader<R> {
     ///                  Animal { count: 3, animal: "quokka".to_string() })]);
     /// # }
     /// ```
-    pub fn reorder(mut self, reorder: bool) -> Reader<R> {
-        self.reorder = reorder;
+    pub fn reorder_columns(mut self, yes: bool) -> Reader<R> {
+        self.reorder_columns = yes;
         self
     }
 
@@ -477,7 +485,7 @@ impl<R: Read> Reader<R> {
 /// The `D` type parameter refers to the decoded type.
 pub struct DecodedRecords<R, D: Decodable> {
     p: csv::Reader<R>,
-    reorder: bool,
+    reorder_columns: bool,
     ignore_ascii_case: bool,
     done_first: bool,
     errored: bool,
@@ -567,7 +575,10 @@ impl<R: Read, D: Decodable> DecodedRecords<R, D> {
             let field_names = field_names_decoder.into_field_names();
 
             // Determine mapping of headers to field names.
-            match map_headers(&headers, &field_names, self.reorder, self.ignore_ascii_case) {
+            match map_headers(&headers,
+                              &field_names,
+                              self.reorder_columns,
+                              self.ignore_ascii_case) {
                 Ok(mapping) => {
                     self.column_mapping = mapping;
                 }
@@ -645,7 +656,8 @@ mod tests {
     #[test]
     fn test_struct_allow_reorder() {
         let rdr = Reader::from_string("b,a\n0,1\n2,3\n");
-        let records = rdr.reorder(true).decode().collect::<Result<Vec<SimpleStruct>>>().unwrap();
+        let records =
+            rdr.reorder_columns(true).decode().collect::<Result<Vec<SimpleStruct>>>().unwrap();
         assert_eq!(records,
                    vec![SimpleStruct { a: 1, b: 0 }, SimpleStruct { a: 3, b: 2 }]);
     }
@@ -723,7 +735,7 @@ mod tests {
     #[test]
     fn test_tuple_of_structs_allow_reorder() {
         let rdr = Reader::from_string("b,a,a,b\n0,1,2,3\n\n4,5,6,7\n");
-        let records = rdr.reorder(true)
+        let records = rdr.reorder_columns(true)
             .decode()
             .collect::<Result<Vec<(SimpleStruct, SimpleStruct)>>>()
             .unwrap();
