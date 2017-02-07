@@ -13,6 +13,10 @@ use std::path::Path;
 
 /// A CSV reader that checks the headers.
 ///
+/// The lifetime parameter `'a` refers to the lifetime of the predicate used
+/// for comparing headers to field names. The `R` type parameter refers to the
+/// type of the underlying reader.
+///
 /// This reader parses CSV data and exposes records via iterators that decode
 /// into types that implement [`rustc_serialize::Decodable`][Decodable]. This
 /// reader wraps the reader from the [`csv`][csv] crate to provide a
@@ -500,13 +504,11 @@ impl<'a, R: Read> Reader<'a, R> {
 
 /// An iterator of decoded records.
 ///
-/// The lifetime parameter `'a` refers to the lifetime of the underlying typed
-/// CSV reader.
-///
-/// The `R` type parameter refers to the type of the underlying reader.
-///
-/// The `D` type parameter refers to the decoded type.
-pub struct DecodedRecords<'a, R, D: Decodable> {
+/// The lifetime parameter `'a` refers to the lifetime of the predicate used
+/// for comparing headers to field names. The `R` type parameter refers to the
+/// type of the underlying reader. The `D` type parameter refers to the decoded
+/// type.
+pub struct DecodedRecords<'a, R: Read, D: Decodable> {
     p: csv::Reader<R>,
     reorder_columns: bool,
     headers_match_by: &'a Fn(&[u8], &[u8]) -> bool,
