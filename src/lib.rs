@@ -11,8 +11,8 @@
 //!
 //! If the ordering of the headers in the file doesn't matter for your use
 //! case, you can ask the reader to reorder the columns to match the headers to
-//! the corresponding field names. You also specify that the headers are
-//! case-insensitive or specify an arbitrary matching predicate.
+//! the corresponding field names. You also specify arbitrary predicate to
+//! match headers to field names.
 //!
 //! If you don't care at all if the headers match the field names (when
 //! reading) or you want to write your own headers (when writing), see the

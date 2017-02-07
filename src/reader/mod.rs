@@ -4,7 +4,6 @@ use self::field_names_decoder::FieldNamesDecoder;
 
 use csv::{self, ByteString, Decoded, Error, NextField, RecordTerminator, Result};
 use rustc_serialize::Decodable;
-use std::ascii::AsciiExt;
 use std::fs::File;
 use std::io::{Cursor, Read};
 use std::iter;
@@ -26,9 +25,8 @@ use std::path::Path;
 /// If the ordering of the headers in the file doesn't matter for your use
 /// case, you can ask the reader to [reorder the
 /// columns](#method.reorder_columns) to match the headers to the corresponding
-/// field names. You also specify that the headers are
-/// [case-insensitive](#method.headers_ignore_ascii_case) or [specify an
-/// arbitrary matching predicate](#method.headers_match_by).
+/// field names. You also [specify an arbitrary matching
+/// predicate](#method.headers_match_by).
 ///
 /// If you don't care whether the headers match the field names at all, see the
 /// [`csv`][csv] crate.
@@ -69,10 +67,9 @@ use std::path::Path;
 ///
 /// Note that the headers must match the field names in `Record` (although you
 /// can ask the reader to [reorder the columns](#method.reorder_columns) to
-/// match the headers to the field names, specify that the headers are
-/// [case-insensitive](#method.headers_ignore_ascii_case), or [specify an
-/// arbitrary matching predicate](#method.headers_match_by)). If the header row
-/// is incorrect, the iterator will return an `Err`:
+/// match the headers to the field names or [specify an arbitrary matching
+/// predicate](#method.headers_match_by)). If the header row is incorrect, the
+/// iterator will return an `Err`:
 ///
 /// ```rust
 /// # extern crate rustc_serialize;
@@ -400,6 +397,56 @@ impl<'a, R: Read> Reader<'a, R> {
     ///
     /// The default is `<[u8]>::eq`. The first argument to the predicate is the
     /// header, and the second argument is the field name.
+    ///
+    /// # Example
+    ///
+    /// This is an example of using a case-insensitive (ASCII) match:
+    ///
+    /// ```rust
+    /// extern crate rustc_serialize;
+    /// # extern crate typed_csv;
+    /// # fn main() {
+    ///
+    /// use std::ascii::AsciiExt;
+    ///
+    /// #[derive(Debug, PartialEq, RustcDecodable)]
+    /// struct Record {
+    ///     count: usize,
+    ///     animal: String,
+    ///     description: String,
+    /// }
+    ///
+    /// let data = "\
+    /// COUNT,animal,DeScRiPtIoN
+    /// 7,penguin,happy
+    /// 10,cheetah,fast
+    /// 4,armadillo,armored
+    /// ";
+    ///
+    /// let rdr = typed_csv::Reader::from_string(data);
+    /// let rows = rdr.headers_match_by(&<[u8]>::eq_ignore_ascii_case)
+    ///     .decode()
+    ///     .collect::<typed_csv::Result<Vec<Record>>>()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(rows,
+    ///            vec![Record {
+    ///                     count: 7,
+    ///                     animal: "penguin".to_string(),
+    ///                     description: "happy".to_string(),
+    ///                 },
+    ///                 Record {
+    ///                     count: 10,
+    ///                     animal: "cheetah".to_string(),
+    ///                     description: "fast".to_string(),
+    ///                 },
+    ///                 Record {
+    ///                     count: 4,
+    ///                     animal: "armadillo".to_string(),
+    ///                     description: "armored".to_string(),
+    ///                 }]);
+    /// # }
+    /// ```
     // See https://github.com/Manishearth/rust-clippy/issues/740#issuecomment-277837213
     #[allow(unknown_lints)]
     #[allow(needless_lifetimes)]
@@ -410,17 +457,6 @@ impl<'a, R: Read> Reader<'a, R> {
             csv: self.csv,
             reorder_columns: self.reorder_columns,
             headers_match_by: pred,
-        }
-    }
-
-    /// A convenience method for setting the headers match predicate to be an
-    /// ASCII case-insensitive match.
-    pub fn headers_ignore_ascii_case(self) -> Reader<'static, R> {
-        static F: fn(&[u8], &[u8]) -> bool = <[u8]>::eq_ignore_ascii_case;
-        Reader {
-            csv: self.csv,
-            reorder_columns: self.reorder_columns,
-            headers_match_by: &F,
         }
     }
 
@@ -686,17 +722,6 @@ mod tests {
             rdr.reorder_columns(true).decode().collect::<Result<Vec<SimpleStruct>>>().unwrap();
         assert_eq!(records,
                    vec![SimpleStruct { a: 1, b: 0 }, SimpleStruct { a: 3, b: 2 }]);
-    }
-
-    #[test]
-    fn test_struct_headers_ignore_ascii_case() {
-        let rdr = Reader::from_string("a,B\n0,1\n2,3\n");
-        let records = rdr.headers_ignore_ascii_case()
-            .decode()
-            .collect::<Result<Vec<SimpleStruct>>>()
-            .unwrap();
-        assert_eq!(records,
-                   vec![SimpleStruct { a: 0, b: 1 }, SimpleStruct { a: 2, b: 3 }]);
     }
 
     #[test]
