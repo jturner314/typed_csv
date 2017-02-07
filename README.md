@@ -15,8 +15,9 @@ Run `cargo doc --open` in this repository.
 
 The reader does type-based decoding for each record in the CSV data. It checks
 that the headers match the field names in the record type. The reader can
-optionally reorder columns to match headers to field names and/or treat headers
-as case-insensitive.
+optionally reorder columns to match headers to field names, treat headers as
+case-insensitive, or use an arbitrary predicate to match headers to field
+names.
 
 ```rust
 extern crate rustc_serialize;

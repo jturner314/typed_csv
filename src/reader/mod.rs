@@ -23,7 +23,8 @@ use std::path::Path;
 /// case, you can ask the reader to [reorder the
 /// columns](#method.reorder_columns) to match the headers to the corresponding
 /// field names. You also specify that the headers are
-/// [case-insensitive](#method.ignore_ascii_case).
+/// [case-insensitive](#method.headers_ignore_ascii_case) or [specify an
+/// arbitrary matching predicate](#method.headers_match_by).
 ///
 /// If you don't care whether the headers match the field names at all, see the
 /// [`csv`][csv] crate.
@@ -64,8 +65,10 @@ use std::path::Path;
 ///
 /// Note that the headers must match the field names in `Record` (although you
 /// can ask the reader to [reorder the columns](#method.reorder_columns) to
-/// match the headers to the field names). If the header row is incorrect, the
-/// iterator will return an `Err`:
+/// match the headers to the field names, specify that the headers are
+/// [case-insensitive](#method.headers_ignore_ascii_case), or [specify an
+/// arbitrary matching predicate](#method.headers_match_by)). If the header row
+/// is incorrect, the iterator will return an `Err`:
 ///
 /// ```rust
 /// # extern crate rustc_serialize;
@@ -95,57 +98,58 @@ use std::path::Path;
 ///
 /// [csv]: https://github.com/BurntSushi/rust-csv
 /// [Decodable]: https://doc.rust-lang.org/rustc-serialize/rustc_serialize/trait.Decodable.html
-pub struct Reader<R: Read> {
+pub struct Reader<'a, R: Read> {
     csv: csv::Reader<R>,
     reorder_columns: bool,
-    ignore_ascii_case: bool,
+    headers_match_by: &'a Fn(&[u8], &[u8]) -> bool,
 }
 
-impl<R: Read> Reader<R> {
+impl<R: Read> Reader<'static, R> {
     /// Creates a new typed CSV reader from a normal CSV reader.
     ///
     /// *Do not make this public!* If it was public, a CSV reader with
     /// `flexible = true` or `has_headers = false` could be passed in.
-    fn from_csv_reader(csv: csv::Reader<R>) -> Reader<R> {
+    fn from_csv_reader(csv: csv::Reader<R>) -> Reader<'static, R> {
+        static F: fn(&[u8], &[u8]) -> bool = <[u8]>::eq;
         Reader {
             csv: csv,
             reorder_columns: false,
-            ignore_ascii_case: false,
+            headers_match_by: &F,
         }
     }
 
     /// Creates a new CSV reader from an arbitrary `io::Read`.
     ///
     /// The reader is buffered for you automatically.
-    pub fn from_reader(r: R) -> Reader<R> {
+    pub fn from_reader(r: R) -> Reader<'static, R> {
         Reader::from_csv_reader(csv::Reader::from_reader(r))
     }
 }
 
-impl Reader<File> {
+impl Reader<'static, File> {
     /// Creates a new CSV reader for the data at the file path given.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Reader<File>> {
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Reader<'static, File>> {
         Ok(Reader::from_csv_reader(csv::Reader::from_file(path)?))
     }
 }
 
-impl Reader<Cursor<Vec<u8>>> {
+impl Reader<'static, Cursor<Vec<u8>>> {
     /// Creates a CSV reader for an in memory string buffer.
-    pub fn from_string<S>(s: S) -> Reader<Cursor<Vec<u8>>>
+    pub fn from_string<S>(s: S) -> Reader<'static, Cursor<Vec<u8>>>
         where S: Into<String>
     {
         Reader::from_csv_reader(csv::Reader::from_string(s))
     }
 
     /// Creates a CSV reader for an in memory buffer of bytes.
-    pub fn from_bytes<V>(bytes: V) -> Reader<Cursor<Vec<u8>>>
+    pub fn from_bytes<V>(bytes: V) -> Reader<'static, Cursor<Vec<u8>>>
         where V: Into<Vec<u8>>
     {
         Reader::from_csv_reader(csv::Reader::from_bytes(bytes))
     }
 }
 
-impl<R: Read> Reader<R> {
+impl<'a, R: Read> Reader<'a, R> {
     /// Uses type-based decoding to read a single record from CSV data.
     ///
     /// The type that is being decoded into should correspond to *one full CSV
@@ -273,11 +277,11 @@ impl<R: Read> Reader<R> {
     ///                  Part2 { size: 3 })]);
     /// # }
     /// ```
-    pub fn decode<D: Decodable>(self) -> DecodedRecords<R, D> {
+    pub fn decode<D: Decodable>(self) -> DecodedRecords<'a, R, D> {
         DecodedRecords {
             p: self.csv,
             reorder_columns: self.reorder_columns,
-            ignore_ascii_case: self.ignore_ascii_case,
+            headers_match_by: self.headers_match_by,
             done_first: false,
             errored: false,
             column_mapping: Vec::new(),
@@ -286,7 +290,7 @@ impl<R: Read> Reader<R> {
     }
 }
 
-impl<R: Read> Reader<R> {
+impl<'a, R: Read> Reader<'a, R> {
     /// Allow the reader to reorder columns to match headers to field names.
     ///
     /// By default, the headers must match the field names of the decodable
@@ -383,18 +387,37 @@ impl<R: Read> Reader<R> {
     ///                  Animal { count: 3, animal: "quokka".to_string() })]);
     /// # }
     /// ```
-    pub fn reorder_columns(mut self, yes: bool) -> Reader<R> {
+    pub fn reorder_columns(mut self, yes: bool) -> Reader<'a, R> {
         self.reorder_columns = yes;
         self
     }
 
-    /// When matching headers to field names, use an ASCII case-insensitive
-    /// match.
+    /// When matching headers to field names, use the given predicate.
     ///
-    /// The default value is `false`.
-    pub fn ignore_ascii_case(mut self, yes: bool) -> Reader<R> {
-        self.ignore_ascii_case = yes;
-        self
+    /// The default is `<[u8]>::eq`. The first argument to the predicate is the
+    /// header, and the second argument is the field name.
+    // See https://github.com/Manishearth/rust-clippy/issues/740#issuecomment-277837213
+    #[allow(unknown_lints)]
+    #[allow(needless_lifetimes)]
+    pub fn headers_match_by<'b, P>(self, pred: &'b P) -> Reader<'b, R>
+        where P: Fn(&[u8], &[u8]) -> bool
+    {
+        Reader {
+            csv: self.csv,
+            reorder_columns: self.reorder_columns,
+            headers_match_by: pred,
+        }
+    }
+
+    /// A convenience method for setting the headers match predicate to be an
+    /// ASCII case-insensitive match.
+    pub fn headers_ignore_ascii_case(self) -> Reader<'static, R> {
+        static F: fn(&[u8], &[u8]) -> bool = <[u8]>::eq_ignore_ascii_case;
+        Reader {
+            csv: self.csv,
+            reorder_columns: self.reorder_columns,
+            headers_match_by: &F,
+        }
     }
 
     /// The delimiter to use when reading CSV data.
@@ -404,7 +427,7 @@ impl<R: Read> Reader<R> {
     /// tab-delimited data, you would use `b'\t'`.
     ///
     /// The default value is `b','`.
-    pub fn delimiter(mut self, delimiter: u8) -> Reader<R> {
+    pub fn delimiter(mut self, delimiter: u8) -> Reader<'a, R> {
         self.csv = self.csv.delimiter(delimiter);
         self
     }
@@ -420,7 +443,7 @@ impl<R: Read> Reader<R> {
     /// character to use as the record terminator. For example, you could
     /// use `RecordTerminator::Any(b'\n')` to only accept line feeds as
     /// record terminators, or `b'\x1e'` for the ASCII record separator.
-    pub fn record_terminator(mut self, term: RecordTerminator) -> Reader<R> {
+    pub fn record_terminator(mut self, term: RecordTerminator) -> Reader<'a, R> {
         self.csv = self.csv.record_terminator(term);
         self
     }
@@ -434,7 +457,7 @@ impl<R: Read> Reader<R> {
     /// The default value is `b'"'`.
     ///
     /// If `quote` is `None`, then no quoting will be used.
-    pub fn quote(mut self, quote: u8) -> Reader<R> {
+    pub fn quote(mut self, quote: u8) -> Reader<'a, R> {
         self.csv = self.csv.quote(quote);
         self
     }
@@ -449,7 +472,7 @@ impl<R: Read> Reader<R> {
     ///
     /// When set to something other than `None`, it is used as the escape
     /// character for quotes. (e.g., `b'\\'`.)
-    pub fn escape(mut self, escape: Option<u8>) -> Reader<R> {
+    pub fn escape(mut self, escape: Option<u8>) -> Reader<'a, R> {
         self.csv = self.csv.escape(escape);
         self
     }
@@ -457,7 +480,7 @@ impl<R: Read> Reader<R> {
     /// Enable double quote escapes.
     ///
     /// When disabled, doubled quotes are not interpreted as escapes.
-    pub fn double_quote(mut self, yes: bool) -> Reader<R> {
+    pub fn double_quote(mut self, yes: bool) -> Reader<'a, R> {
         self.csv = self.csv.double_quote(yes);
         self
     }
@@ -469,7 +492,7 @@ impl<R: Read> Reader<R> {
     ///
     /// Since ASCII delimited text is meant to be unquoted, this also sets
     /// `quote` to `None`.
-    pub fn ascii(mut self) -> Reader<R> {
+    pub fn ascii(mut self) -> Reader<'a, R> {
         self.csv = self.csv.ascii();
         self
     }
@@ -483,10 +506,10 @@ impl<R: Read> Reader<R> {
 /// The `R` type parameter refers to the type of the underlying reader.
 ///
 /// The `D` type parameter refers to the decoded type.
-pub struct DecodedRecords<R, D: Decodable> {
+pub struct DecodedRecords<'a, R, D: Decodable> {
     p: csv::Reader<R>,
     reorder_columns: bool,
-    ignore_ascii_case: bool,
+    headers_match_by: &'a Fn(&[u8], &[u8]) -> bool,
     done_first: bool,
     errored: bool,
     /// Indices are column numbers and values are field numbers.
@@ -498,22 +521,22 @@ pub struct DecodedRecords<R, D: Decodable> {
 ///
 /// The mapping is a `Vec` of indices, where the indices of the `Vec` are the
 /// column indices, and the values of the `Vec` are the field indices.
-fn map_headers(headers: &[ByteString],
-               field_names: &[ByteString],
-               reorder: bool,
-               ignore_ascii_case: bool)
-               -> Result<Vec<usize>> {
+///
+/// The first argument to the predicate is the header, and the second argument
+/// is the field name.
+fn map_headers<P>(headers: &[ByteString],
+                  field_names: &[ByteString],
+                  reorder: bool,
+                  predicate: &P)
+                  -> Result<Vec<usize>>
+    where P: ?Sized + Fn(&[u8], &[u8]) -> bool
+{
     if headers.len() != field_names.len() {
         return Err(Error::Decode(format!("The decodable type has {} field names, but there are \
                                           {} headers",
                                          field_names.len(),
                                          headers.len())));
     }
-    let predicate = if ignore_ascii_case {
-        <[u8]>::eq_ignore_ascii_case
-    } else {
-        <[u8]>::eq
-    };
     if reorder {
         let mut mapping = Vec::with_capacity(headers.len());
         // Whether fields have been used yet.
@@ -541,7 +564,7 @@ fn map_headers(headers: &[ByteString],
     }
 }
 
-impl<R: Read, D: Decodable> DecodedRecords<R, D> {
+impl<'a, R: Read, D: Decodable> DecodedRecords<'a, R, D> {
     /// This is wrapped in the `next()` method to ensure that `self.errored` is
     /// always set properly.
     fn next_impl(&mut self) -> Option<Result<D>> {
@@ -578,7 +601,7 @@ impl<R: Read, D: Decodable> DecodedRecords<R, D> {
             match map_headers(&headers,
                               &field_names,
                               self.reorder_columns,
-                              self.ignore_ascii_case) {
+                              self.headers_match_by) {
                 Ok(mapping) => {
                     self.column_mapping = mapping;
                 }
@@ -621,7 +644,7 @@ impl<R: Read, D: Decodable> DecodedRecords<R, D> {
     }
 }
 
-impl<R: Read, D: Decodable> Iterator for DecodedRecords<R, D> {
+impl<'a, R: Read, D: Decodable> Iterator for DecodedRecords<'a, R, D> {
     type Item = Result<D>;
 
     fn next(&mut self) -> Option<Result<D>> {
@@ -638,6 +661,7 @@ impl<R: Read, D: Decodable> Iterator for DecodedRecords<R, D> {
 #[cfg(test)]
 mod tests {
     use super::{Reader, Result};
+    use std::ascii::AsciiExt;
 
     #[derive(Debug, PartialEq, RustcDecodable)]
     struct SimpleStruct {
@@ -663,10 +687,23 @@ mod tests {
     }
 
     #[test]
-    fn test_struct_ignore_ascii_case() {
+    fn test_struct_headers_ignore_ascii_case() {
         let rdr = Reader::from_string("a,B\n0,1\n2,3\n");
-        let records =
-            rdr.ignore_ascii_case(true).decode().collect::<Result<Vec<SimpleStruct>>>().unwrap();
+        let records = rdr.headers_ignore_ascii_case()
+            .decode()
+            .collect::<Result<Vec<SimpleStruct>>>()
+            .unwrap();
+        assert_eq!(records,
+                   vec![SimpleStruct { a: 0, b: 1 }, SimpleStruct { a: 2, b: 3 }]);
+    }
+
+    #[test]
+    fn test_struct_headers_match_by() {
+        let rdr = Reader::from_string("a,B\n0,1\n2,3\n");
+        let records = rdr.headers_match_by(&<[u8]>::eq_ignore_ascii_case)
+            .decode()
+            .collect::<Result<Vec<SimpleStruct>>>()
+            .unwrap();
         assert_eq!(records,
                    vec![SimpleStruct { a: 0, b: 1 }, SimpleStruct { a: 2, b: 3 }]);
     }

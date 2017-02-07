@@ -9,10 +9,14 @@
 //! Otherwise, this crate's interface is effectively just a subset of the
 //! [`csv`][csv] crate's interface.
 //!
-//! The reader can optionally reorder columns to match headers to field names
-//! and/or treat headers as case-insensitive. If you don't care at all if the
-//! headers match the field names (when reading) or you want to write your own
-//! headers (when writing), see the [`csv`][csv] crate.
+//! If the ordering of the headers in the file doesn't matter for your use
+//! case, you can ask the reader to reorder the columns to match the headers to
+//! the corresponding field names. You also specify that the headers are
+//! case-insensitive or specify an arbitrary matching predicate.
+//!
+//! If you don't care at all if the headers match the field names (when
+//! reading) or you want to write your own headers (when writing), see the
+//! [`csv`][csv] crate.
 //!
 //! # Examples
 //!
