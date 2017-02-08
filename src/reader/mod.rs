@@ -6,7 +6,6 @@ use csv::{self, ByteString, Decoded, Error, NextField, RecordTerminator, Result}
 use rustc_serialize::Decodable;
 use std::fs::File;
 use std::io::{Cursor, Read};
-use std::iter;
 use std::marker::PhantomData;
 use std::path::Path;
 
@@ -25,7 +24,8 @@ use std::path::Path;
 /// If the ordering of the headers in the file doesn't matter for your use
 /// case, you can ask the reader to [reorder the
 /// columns](#method.reorder_columns) to match the headers to the corresponding
-/// field names. You also [specify an arbitrary matching
+/// field names. You also [ignore unused
+/// columns](#method.ignore_unused_columns) or [specify an arbitrary matching
 /// predicate](#method.headers_match_by).
 ///
 /// If you don't care whether the headers match the field names at all, see the
@@ -67,7 +67,8 @@ use std::path::Path;
 ///
 /// Note that the headers must match the field names in `Record` (although you
 /// can ask the reader to [reorder the columns](#method.reorder_columns) to
-/// match the headers to the field names or [specify an arbitrary matching
+/// match the headers to the field names, [ignore unused
+/// columns](#method.ignore_unused_columns), or [specify an arbitrary matching
 /// predicate](#method.headers_match_by)). If the header row is incorrect, the
 /// iterator will return an `Err`:
 ///
@@ -102,6 +103,7 @@ use std::path::Path;
 pub struct Reader<'a, R: Read> {
     csv: csv::Reader<R>,
     reorder_columns: bool,
+    ignore_unused_columns: bool,
     headers_match_by: &'a Fn(&[u8], &[u8]) -> bool,
 }
 
@@ -115,6 +117,7 @@ impl<R: Read> Reader<'static, R> {
         Reader {
             csv: csv,
             reorder_columns: false,
+            ignore_unused_columns: false,
             headers_match_by: &F,
         }
     }
@@ -282,10 +285,12 @@ impl<'a, R: Read> Reader<'a, R> {
         DecodedRecords {
             p: self.csv,
             reorder_columns: self.reorder_columns,
+            ignore_unused_columns: self.ignore_unused_columns,
             headers_match_by: self.headers_match_by,
             done_first: false,
             errored: false,
             column_mapping: Vec::new(),
+            field_count: 0,
             record_type: PhantomData,
         }
     }
@@ -393,6 +398,65 @@ impl<'a, R: Read> Reader<'a, R> {
         self
     }
 
+    /// Allow the reader to ignore unused columns.
+    ///
+    /// By default, the headers must match the field names of the decodable
+    /// type exactly with no extra columns. However, you may not care if there
+    /// are extra, unused, columns in the CSV file, so this option is
+    /// available.
+    ///
+    /// # Example
+    ///
+    /// In this example, the `pattern` column is unused and ignored:
+    ///
+    /// ```rust
+    /// extern crate rustc_serialize;
+    /// # extern crate typed_csv;
+    /// # fn main() {
+    ///
+    /// #[derive(Debug, PartialEq, RustcDecodable)]
+    /// struct Record {
+    ///     count: usize,
+    ///     animal: String,
+    ///     description: String,
+    /// }
+    ///
+    /// let data = "\
+    /// count,animal,description,pattern
+    /// 7,penguin,happy,tuxedo
+    /// 10,cheetah,fast,spotted
+    /// 4,armadillo,armored,scaly
+    /// ";
+    ///
+    /// let rdr = typed_csv::Reader::from_string(data);
+    /// let rows = rdr.ignore_unused_columns(true)
+    ///     .decode()
+    ///     .collect::<typed_csv::Result<Vec<Record>>>()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(rows,
+    ///            vec![Record {
+    ///                     count: 7,
+    ///                     animal: "penguin".to_string(),
+    ///                     description: "happy".to_string(),
+    ///                 },
+    ///                 Record {
+    ///                     count: 10,
+    ///                     animal: "cheetah".to_string(),
+    ///                     description: "fast".to_string(),
+    ///                 },
+    ///                 Record {
+    ///                     count: 4,
+    ///                     animal: "armadillo".to_string(),
+    ///                     description: "armored".to_string(),
+    ///                 }]);
+    /// # }
+    /// ```
+    pub fn ignore_unused_columns(mut self, yes: bool) -> Reader<'a, R> {
+        self.ignore_unused_columns = yes;
+        self
+    }
+
     /// When matching headers to field names, use the given predicate.
     ///
     /// The default is `<[u8]>::eq`. The first argument to the predicate is the
@@ -456,6 +520,7 @@ impl<'a, R: Read> Reader<'a, R> {
         Reader {
             csv: self.csv,
             reorder_columns: self.reorder_columns,
+            ignore_unused_columns: self.ignore_unused_columns,
             headers_match_by: pred,
         }
     }
@@ -547,47 +612,70 @@ impl<'a, R: Read> Reader<'a, R> {
 pub struct DecodedRecords<'a, R: Read, D: Decodable> {
     p: csv::Reader<R>,
     reorder_columns: bool,
+    ignore_unused_columns: bool,
     headers_match_by: &'a Fn(&[u8], &[u8]) -> bool,
     done_first: bool,
     errored: bool,
-    /// Indices are column numbers and values are field numbers.
-    column_mapping: Vec<usize>,
+    /// Indices are column indices and values are the (optional) field indices.
+    column_mapping: Vec<Option<usize>>,
+    field_count: usize,
     record_type: PhantomData<D>,
 }
 
 /// Determinines mapping of columns to fields according to headers and field names.
 ///
 /// The mapping is a `Vec` of indices, where the indices of the `Vec` are the
-/// column indices, and the values of the `Vec` are the field indices.
+/// column indices, and the values of the `Vec` are the (optional) field indices.
 ///
 /// The first argument to the predicate is the header, and the second argument
 /// is the field name.
 fn map_headers<P>(headers: &[ByteString],
                   field_names: &[ByteString],
                   reorder: bool,
+                  ignore_unused_columns: bool,
                   predicate: &P)
-                  -> Result<Vec<usize>>
+                  -> Result<Vec<Option<usize>>>
     where P: ?Sized + Fn(&[u8], &[u8]) -> bool
 {
-    if headers.len() != field_names.len() {
+    if headers.len() < field_names.len() ||
+       (headers.len() > field_names.len() && !ignore_unused_columns) {
         return Err(Error::Decode(format!("The decodable type has {} field names, but there are \
                                           {} headers",
                                          field_names.len(),
                                          headers.len())));
     }
     if reorder {
-        let mut mapping = Vec::with_capacity(headers.len());
-        // Whether fields have been used yet.
-        let mut used = iter::repeat(false).take(headers.len()).collect::<Vec<_>>();
-        for header in headers {
-            // Search for the first matching field that hasn't been used yet.
-            let found = field_names.iter()
-                .enumerate()
-                .find(|&(field_index, field)| predicate(header, field) && !used[field_index]);
+        let mut mapping = vec![None; headers.len()];
+        // Headers used so far.
+        let mut headers_used = vec![false; headers.len()];
+        for (field_index, field_name) in field_names.iter().enumerate() {
+            // Search for the first matching header that hasn't been used yet.
+            let found = headers.iter()
+                .zip(headers_used.iter())
+                .position(|(header, used)| predicate(header, field_name) && !used);
             match found {
-                Some((field_index, _)) => {
-                    mapping.push(field_index);
-                    used[field_index] = true;
+                Some(header_index) => {
+                    mapping[header_index] = Some(field_index);
+                    headers_used[header_index] = true;
+                }
+                None => {
+                    return Err(Error::Decode("Headers don't match field names".to_string()));
+                }
+            }
+        }
+        Ok(mapping)
+    } else if ignore_unused_columns {
+        let mut mapping = vec![None; headers.len()];
+        // Cursor to keep track of starting position in `headers` slice.
+        let mut cursor = 0;
+        for (field_index, field_name) in field_names.iter().enumerate() {
+            // Search for the first matching header, starting from `cursor`.
+            let found = (cursor..headers.len())
+                .find(|&header_index| predicate(&headers[header_index], field_name));
+            match found {
+                Some(header_index) => {
+                    mapping[header_index] = Some(field_index);
+                    cursor = header_index + 1;
                 }
                 None => {
                     return Err(Error::Decode("Headers don't match field names".to_string()));
@@ -596,7 +684,7 @@ fn map_headers<P>(headers: &[ByteString],
         }
         Ok(mapping)
     } else if headers.iter().zip(field_names).all(|(h, f)| predicate(h, f)) {
-        Ok((0..headers.len()).collect())
+        Ok((0..headers.len()).map(|i| Some(i)).collect())
     } else {
         Err(Error::Decode("Headers don't match field names".to_string()))
     }
@@ -628,17 +716,20 @@ impl<'a, R: Read, D: Decodable> DecodedRecords<'a, R, D> {
                 Err(e) => return Some(Err(e)),
             };
 
-            // Get the field names of the decodable type.
+            // Get the field names of the decodable type and set
+            // `self.field_count`.
             let mut field_names_decoder = FieldNamesDecoder::new();
             if let Err(e) = D::decode(&mut field_names_decoder) {
                 return Some(Err(e));
             }
             let field_names = field_names_decoder.into_field_names();
+            self.field_count = field_names.len();
 
             // Determine mapping of headers to field names.
             match map_headers(&headers,
                               &field_names,
                               self.reorder_columns,
+                              self.ignore_unused_columns,
                               self.headers_match_by) {
                 Ok(mapping) => {
                     self.column_mapping = mapping;
@@ -653,8 +744,7 @@ impl<'a, R: Read, D: Decodable> DecodedRecords<'a, R, D> {
             return None;
         }
 
-        let mut record =
-            iter::repeat(Vec::new()).take(self.column_mapping.len()).collect::<Vec<_>>();
+        let mut record = vec![Vec::new(); self.field_count];
         let mut column = 0;
         loop {
             match self.p.next_bytes() {
@@ -669,7 +759,9 @@ impl<'a, R: Read, D: Decodable> DecodedRecords<'a, R, D> {
                 }
                 NextField::Data(field) => {
                     if column < self.column_mapping.len() {
-                        record[self.column_mapping[column]] = field.to_vec();
+                        if let Some(field_index) = self.column_mapping[column] {
+                            record[field_index] = field.to_vec();
+                        }
                         column += 1;
                     } else {
                         return Some(Err(Error::Decode("More data columns than headers"
@@ -722,6 +814,29 @@ mod tests {
             rdr.reorder_columns(true).decode().collect::<Result<Vec<SimpleStruct>>>().unwrap();
         assert_eq!(records,
                    vec![SimpleStruct { a: 1, b: 0 }, SimpleStruct { a: 3, b: 2 }]);
+    }
+
+    #[test]
+    fn test_struct_ignore_unused_columns() {
+        let rdr = Reader::from_string("a,b,c\n0,1,2\n3,4,5\n");
+        let records = rdr.ignore_unused_columns(true)
+            .decode()
+            .collect::<Result<Vec<SimpleStruct>>>()
+            .unwrap();
+        assert_eq!(records,
+                   vec![SimpleStruct { a: 0, b: 1 }, SimpleStruct { a: 3, b: 4 }]);
+    }
+
+    #[test]
+    fn test_struct_allow_reorder_and_ignore_unused_columns() {
+        let rdr = Reader::from_string("b,c,a\n0,1,2\n3,4,5\n");
+        let records = rdr.reorder_columns(true)
+            .ignore_unused_columns(true)
+            .decode()
+            .collect::<Result<Vec<SimpleStruct>>>()
+            .unwrap();
+        assert_eq!(records,
+                   vec![SimpleStruct { a: 2, b: 0 }, SimpleStruct { a: 5, b: 3 }]);
     }
 
     #[test]
