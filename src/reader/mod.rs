@@ -691,11 +691,13 @@ fn map_headers<P>(headers: &[ByteString],
 }
 
 impl<'a, R: Read, D: Decodable> DecodedRecords<'a, R, D> {
-    /// This is wrapped in the `next()` method to ensure that `self.errored` is
-    /// always set properly.
-    fn next_impl(&mut self) -> Option<Result<D>> {
+    /// Processes the first row, setting `self.done_first, `self.field_count`,
+    /// and `self.column_mapping`.
+    ///
+    /// This method is idempotent and fast on subsequent calls (since it uses
+    /// `self.done_first` to track whether it's been called before).
+    fn process_first_row(&mut self) -> Result<()> {
         if !self.done_first {
-            // Never do this special first record processing again.
             self.done_first = true;
 
             // Always consume the header record. If headers have been read
@@ -703,41 +705,37 @@ impl<'a, R: Read, D: Decodable> DecodedRecords<'a, R, D> {
             // (and no parser progression).
             let headers = self.p.byte_headers();
 
-            // If the header row is empty, then the CSV data contains
-            // no records. Never return zero-length records!
+            // If the header row is empty, then the CSV data contains no records.
             if headers.as_ref().map(|r| r.is_empty()).unwrap_or(false) {
                 assert!(self.p.done());
-                return None;
+                return Ok(());
             }
 
             // Otherwise, unwrap the headers.
-            let headers = match headers {
-                Ok(h) => h,
-                Err(e) => return Some(Err(e)),
-            };
+            let headers = headers?;
 
             // Get the field names of the decodable type and set
             // `self.field_count`.
             let mut field_names_decoder = FieldNamesDecoder::new();
-            if let Err(e) = D::decode(&mut field_names_decoder) {
-                return Some(Err(e));
-            }
+            D::decode(&mut field_names_decoder)?;
             let field_names = field_names_decoder.into_field_names();
-            self.field_count = field_names.len();
 
-            // Determine mapping of headers to field names.
-            match map_headers(&headers,
-                              &field_names,
-                              self.reorder_columns,
-                              self.ignore_unused_columns,
-                              self.headers_match_by) {
-                Ok(mapping) => {
-                    self.column_mapping = mapping;
-                }
-                Err(err) => {
-                    return Some(Err(err));
-                }
-            }
+            // Set `field_count` and `column_mapping`.
+            self.field_count = field_names.len();
+            self.column_mapping = map_headers(&headers,
+                                              &field_names,
+                                              self.reorder_columns,
+                                              self.ignore_unused_columns,
+                                              self.headers_match_by)?;
+        }
+        Ok(())
+    }
+
+    /// This is wrapped in the `next()` method to ensure that `self.errored` is
+    /// always set properly.
+    fn next_impl(&mut self) -> Option<Result<D>> {
+        if let Err(err) = self.process_first_row() {
+            return Some(Err(err));
         }
 
         if self.p.done() || self.errored {
