@@ -288,7 +288,7 @@ impl<'a, R: Read> Reader<'a, R> {
             ignore_unused_columns: self.ignore_unused_columns,
             headers_match_by: self.headers_match_by,
             done_first: false,
-            errored: false,
+            done: false,
             column_mapping: Vec::new(),
             field_count: 0,
             record_type: PhantomData,
@@ -615,7 +615,8 @@ pub struct DecodedRecords<'a, R: Read, D: Decodable> {
     ignore_unused_columns: bool,
     headers_match_by: &'a Fn(&[u8], &[u8]) -> bool,
     done_first: bool,
-    errored: bool,
+    /// Finished reading records or encountered an error.
+    done: bool,
     /// Indices are column indices and values are the (optional) field indices.
     column_mapping: Vec<Option<usize>>,
     field_count: usize,
@@ -731,14 +732,14 @@ impl<'a, R: Read, D: Decodable> DecodedRecords<'a, R, D> {
         Ok(())
     }
 
-    /// This is wrapped in the `next()` method to ensure that `self.errored` is
+    /// This is wrapped in the `next()` method to ensure that `self.done` is
     /// always set properly.
     fn next_impl(&mut self) -> Option<Result<D>> {
         if let Err(err) = self.process_first_row() {
             return Some(Err(err));
         }
 
-        if self.p.done() || self.errored {
+        if self.p.done() {
             return None;
         }
 
@@ -776,12 +777,15 @@ impl<'a, R: Read, D: Decodable> Iterator for DecodedRecords<'a, R, D> {
     type Item = Result<D>;
 
     fn next(&mut self) -> Option<Result<D>> {
-        match self.next_impl() {
-            Some(Err(err)) => {
-                self.errored = true;
-                Some(Err(err))
+        if self.done {
+            None
+        } else {
+            let next = self.next_impl();
+            match next {
+                None | Some(Err(_)) => self.done = true,
+                _ => ()
             }
-            other => other,
+            next
         }
     }
 }
